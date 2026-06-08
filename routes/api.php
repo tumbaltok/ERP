@@ -13,7 +13,11 @@ Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware(['auth:sanctum'])->group(function () {
     // Rute untuk karyawan membuat pengajuan cuti
+    Route::get('/pengajuan-cuti', [PengajuanCutiController::class, 'index']);
     Route::post('/pengajuan-cuti', [PengajuanCutiController::class, 'store']);
+    Route::get('/pengajuan-cuti/{id}', [PengajuanCutiController::class, 'show']);
+
     // Rute untuk SPV/Manager melakukan approve atau reject (mengirim ID pengajuan)
+    Route::get('/atasan/antrean-cuti', [PengajuanCutiController::class, 'listPengajuanAtasan']);
     Route::put('/pengajuan-cuti/{id}/approve', [PengajuanCutiController::class, 'approve']);
 });

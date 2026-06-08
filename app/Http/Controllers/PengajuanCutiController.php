@@ -11,6 +11,24 @@ use Carbon\Carbon;
 
 class PengajuanCutiController extends Controller
 {
+
+    // KARYAWAN: Melihat riwayat cuti milik diri sendiri
+    public function index(Request $request)
+    {
+        $user = $request->user();
+
+        // Mengambil cuti yang diajukan oleh user yang sedang login saat ini
+        $riwayatCuti = PengajuanCuti::with('jenisCuti')
+            ->where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'message' => 'Riwayat pengajuan cuti berhasil diambil.',
+            'data' => $riwayatCuti
+        ], 200);
+    }
+
     // KARYAWAN: Mengajukan Cuti
     public function store(Request $request)
     {
@@ -83,6 +101,39 @@ class PengajuanCutiController extends Controller
         ]);
 
         return response()->json(['message' => 'Cuti ' . $jenisCuti->name_cuti . ' berhasil diajukan!', 'data' => $pengajuan], 201);
+    }
+
+    // ATASAN: Melihat daftar cuti bawahan yang butuh diproses
+    public function listPengajuanAtasan(Request $request)
+    {
+        $atasan = $request->user()->load('role');
+        $roleName = strtolower($atasan->role->role_name ?? '');
+
+        // Jika Supervisor, hanya tampilkan cuti dari karyawan stasiun yang sama
+        if ($roleName === 'supervisor') {
+            $daftarCuti = PengajuanCuti::with(['user', 'jenisCuti'])
+                ->whereHas('user', function($query) use ($atasan) {
+                    $query->where('station_id', $atasan->station_id);
+                })
+                ->where('status_supervisor', 'pending')
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            return response()->json(['data' => $daftarCuti], 200);
+        }
+
+        // Jika Manager, tampilkan semua yang sudah di-approve Supervisor (atau jika SPV kosong)
+        if ($roleName === 'manager') {
+            $daftarCuti = PengajuanCuti::with(['user', 'jenisCuti'])
+                ->where('status_supervisor', 'approved')
+                ->where('status_manager', 'pending')
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            return response()->json(['data' => $daftarCuti], 200);
+        }
+
+        return response()->json(['message' => 'Akses ditolak.'], 403);
     }
 
     // ATASAN: Menyetujui atau Menolak Cuti
@@ -159,5 +210,11 @@ class PengajuanCutiController extends Controller
             return response()->json(['message' => 'Manager berhasil memperbarui status pengajuan.']);
         }
         return response()->json(['message' => 'Status pengajuan cuti berhasil diperbarui.']);
+    }
+
+    public function show($id)
+    {
+        $pengajuan = PengajuanCuti::with(['user', 'jenisCuti'])->findOrFail($id);
+        return response()->json(['data' => $pengajuan], 200);
     }
 }
