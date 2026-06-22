@@ -8,6 +8,7 @@ use App\Models\SaldoCuti;
 use App\Models\JenisCuti;
 use App\Models\SubCuti;
 use App\Models\Absensi;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -29,6 +30,26 @@ class PengajuanCutiController extends Controller
             'message' => 'Riwayat pengajuan cuti berhasil diambil.',
             'data' => $riwayatCuti
         ], 200);
+    }
+
+    /**
+     * FUNGSI UTALITAS BARU: Cek apakah pengajuan ini masuk kategori potong kuota.
+     * Memotong saldo jika Jenis Cuti Utama adalah Cuti Tahunan (ID: 4) ATAU Sub-Cutinya adalah 'Haid'.
+     */
+    private function alurPotongSaldo(int $jenisCutiId, ?int $subCutiId): bool
+    {
+        if ($jenisCutiId === 4) {
+            return true;
+        }
+
+        if ($subCutiId) {
+            $subCuti = SubCuti::find($subCutiId);
+            if ($subCuti && strtolower($subCuti->nama_sub_cuti) === 'haid') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // KARYAWAN: Mengajukan Cuti (API)
@@ -65,19 +86,45 @@ class PengajuanCutiController extends Controller
         $mulai = Carbon::parse($request->tanggal_mulai);
         $selesai = Carbon::parse($request->tanggal_selesai);
         $totalHari = $mulai->diffInDays($selesai) + 1;
-        $tahunPengajuan = $mulai->year;
 
-        if ($this->cekApakahMemotongSaldo($request->jenis_cuti_id)) {
-            $saldo = SaldoCuti::where('user_id', $user->id)
-                ->where('jenis_cuti_id', $request->jenis_cuti_id)
-                ->where('tahun', $tahunPengajuan)
-                ->first();
+        $jenisCutiId = $request->jenis_cuti_id;
+        $subCutiId = $request->sub_cuti_id;
+        $tahunSekarang = Carbon::parse($request->tanggal_mulai)->year;
+        $bulanSekarang = Carbon::parse($request->tanggal_mulai)->month;
 
+        // VALIDASI PROTEKSI: Batasi total pengajuan Cuti Haid maks 2 hari dalam sebulan
+        if ($subCutiId) {
+            $subDb = SubCuti::find($subCutiId);
+            if ($subDb && strtolower($subDb->nama_sub_cuti) === 'haid') {
+                $totalHaidBulanIni = PengajuanCuti::where('user_id', $user->id)
+                    ->where('sub_cuti_id', $subCutiId)
+                    ->whereIn('status_akhir', ['pending', 'approved'])
+                    ->whereMonth('tanggal_mulai', $bulanSekarang)
+                    ->whereYear('tanggal_mulai', $tahunSekarang)
+                    ->sum('total_hari');
+
+                if (($totalHaidBulanIni + $totalHari) > 2) {
+                    return response()->json([
+                        'message' => "Ditolak! Batas kuota Cuti Haid adalah 2 hari per bulan. Anda bulan ini sudah mengajukan/mengambil {$totalHaidBulanIni} hari."
+                    ], 400);
+                }
+            }
+        }
+
+        // Ambil data Master Saldo
+        $saldo = SaldoCuti::where('user_id', $user->id)
+            ->where('jenis_cuti_id', $jenisCutiId)
+            ->where('tahun', $tahunSekarang)
+            ->first();
+
+        // Pengecekan saldo efektif antrean
+        if ($this->alurPotongSaldo($jenisCutiId, $subCutiId)) {
             $sisaSaldoDatabase = $saldo ? (int)$saldo->sisa_saldo : 0;
 
             $totalCutiPending = DB::table('pengajuan_cutis')
                 ->where('user_id', $user->id)
-                ->where('jenis_cuti_id', $request->jenis_cuti_id)
+                ->where('jenis_cuti_id', $jenisCutiId)
+                ->where('sub_cuti_id', $subCutiId) // Kelompokkan sub-cutinya juga agar tidak salah hitung jenis ijin lain
                 ->where('status_akhir', 'pending')
                 ->sum('total_hari');
 
@@ -86,12 +133,8 @@ class PengajuanCutiController extends Controller
             if ($saldoEfektif <= 0 || $saldoEfektif < $totalHari) {
                 return response()->json([
                     'message' => $saldoEfektif <= 0
-                        ? "Sisa kuota cuti anda sudah habis atau sedang masuk antrean persetujuan."
-                        : "Sisa kuota cuti anda tidak mencukupi. Sisa efektif saat ini: {$saldoEfektif} hari, Anda mengajukan {$totalHari} hari.",
-                    'debug_info' => [
-                        'total_hari_diajukan' => $totalHari,
-                        'saldo_efektif_tersisa' => $saldoEfektif,
-                    ]
+                        ? "Sisa kuota jatah anda sudah habis atau sedang masuk antrean persetujuan."
+                        : "Sisa kuota jatah anda tidak mencukupi. Sisa efektif saat ini: {$saldoEfektif} hari, Anda mengajukan {$totalHari} hari.",
                 ], 400);
             }
         }
@@ -99,10 +142,7 @@ class PengajuanCutiController extends Controller
         // Cek bentrok tanggal
         $cutiBentrok = DB::table('pengajuan_cutis')
             ->where('user_id', $user->id)
-            ->where(function($query) {
-                $query->whereRaw('LOWER(status_akhir) = ?', ['pending'])
-                      ->orWhereRaw('LOWER(status_akhir) = ?', ['approved']);
-            })
+            ->whereIn('status_akhir', ['pending', 'approved'])
             ->where(function ($query) use ($tanggalMulaiBaru, $tanggalSelesaiBaru) {
                 $query->where(function ($q) use ($tanggalMulaiBaru) {
                     $q->where('tanggal_mulai', '<=', $tanggalMulaiBaru)
@@ -125,17 +165,17 @@ class PengajuanCutiController extends Controller
             ], 400);
         }
 
-        $jenisCuti = JenisCuti::findOrFail($request->jenis_cuti_id);
+        $jenisCuti = JenisCuti::findOrFail($jenisCutiId);
         $namaCutiUtama = strtolower($jenisCuti->name_cuti ?? '');
 
         $namaSubCuti = '';
-        if ($request->sub_cuti_id) {
-            $subDb = SubCuti::find($request->sub_cuti_id);
+        if ($subCutiId) {
+            $subDb = SubCuti::find($subCutiId);
             $namaSubCuti = $subDb ? strtolower($subDb->nama_sub_cuti) : '';
         }
 
-        $genderUser = strtolower($user->gender_id ?? $user->gender->name ?? $user->gender ?? '');
-        $isPria = ($genderUser === 'pria' || $genderUser === '1' || $genderUser === 'laki-laki' || $genderUser === 'male');
+        $genderUser = strtolower($user->gender->name ?? '');
+        $isPria = in_array($genderUser, ['pria', '1', 'laki-laki', 'male']);
         if ($isPria) {
             if (str_contains($namaCutiUtama, 'melahirkan') || str_contains($namaSubCuti, 'melahirkan') || str_contains($namaSubCuti, 'gugur') || str_contains($namaSubCuti, 'haid')) {
                 return response()->json([
@@ -146,12 +186,10 @@ class PengajuanCutiController extends Controller
 
         $namaDokumen = null;
         if ($request->hasFile('dokumen_pendukung')) {
-            $file = $request->file('dokumen_pendukung');
-            $path = $file->store('dokumen_cuti', 'public');
-            $namaDokumen = $path;
+            $namaDokumen = $request->file('dokumen_pendukung')->store('dokumen_cuti', 'public');
         }
 
-        $roleName = strtolower($user->role->role_name ?? $user->role ?? '');
+        $roleName = strtolower($user->role->role_name ?? '');
         $statusSupervisor = 'pending';
         $statusManager    = 'pending';
         $statusAkhir      = 'pending';
@@ -169,8 +207,8 @@ class PengajuanCutiController extends Controller
         try {
             $pengajuan = PengajuanCuti::create([
                 'user_id' => $user->id,
-                'jenis_cuti_id' => $request->jenis_cuti_id,
-                'sub_cuti_id' => $request->sub_cuti_id,
+                'jenis_cuti_id' => $jenisCutiId,
+                'sub_cuti_id' => $subCutiId,
                 'tanggal_mulai' => $request->tanggal_mulai,
                 'tanggal_selesai' => $request->tanggal_selesai,
                 'total_hari' => $totalHari,
@@ -225,19 +263,46 @@ class PengajuanCutiController extends Controller
         $mulai = Carbon::parse($request->tanggal_mulai);
         $selesai = Carbon::parse($request->tanggal_selesai);
         $totalHari = $mulai->diffInDays($selesai) + 1;
-        $tahunPengajuan = $mulai->year;
 
-        if ($this->cekApakahMemotongSaldo($request->jenis_cuti_id)) {
-            $saldo = SaldoCuti::where('user_id', $user->id)
-                ->where('jenis_cuti_id', $request->jenis_cuti_id)
-                ->where('tahun', $tahunPengajuan)
-                ->first();
+        $jenisCutiId = $request->jenis_cuti_id;
+        $subCutiId = $request->sub_cuti_id;
+        $tahunSekarang = Carbon::parse($request->tanggal_mulai)->year;
+        $bulanSekarang = Carbon::parse($request->tanggal_mulai)->month;
 
-            $sisaSaldoDatabase = $saldo ? (int)$saldo->sisa_saldo : 0;
+        // VALIDASI PROTEKSI WEB: Batasi total pengajuan Cuti Haid maks 2 hari dalam sebulan
+        if ($subCutiId) {
+            $subDb = SubCuti::find($subCutiId);
+            if ($subDb && strtolower($subDb->nama_sub_cuti) === 'haid') {
+                $totalHaidBulanIni = PengajuanCuti::where('user_id', $user->id)
+                    ->where('sub_cuti_id', $subCutiId)
+                    ->whereIn('status_akhir', ['pending', 'approved'])
+                    ->whereMonth('tanggal_mulai', $bulanSekarang)
+                    ->whereYear('tanggal_mulai', $tahunSekarang)
+                    ->sum('total_hari');
+
+                if (($totalHaidBulanIni + $totalHari) > 2) {
+                    return back()->withErrors(['error' => "Maaf, Batas jatah kuota Cuti Haid maksimal adalah 2 hari per bulan. Jatah yang telah Anda ajukan bulan ini: {$totalHaidBulanIni} hari."])->withInput();
+                }
+            }
+        }
+
+        $saldo = SaldoCuti::where('user_id', $user->id)
+            ->where('jenis_cuti_id', $jenisCutiId)
+            ->where('tahun', $tahunSekarang)
+            ->first();
+
+        if (!$saldo) {
+            return redirect()->back()->withErrors(['error' => 'Sisa kuota cuti Anda belum diatur oleh admin untuk tahun ini!'])->withInput();
+        }
+
+        // Hitung sisa saldo efektif (Antrean Pending)
+        if ($this->alurPotongSaldo($jenisCutiId, $subCutiId)) {
+            $sisaSaldoDatabase = (int)$saldo->sisa_saldo;
 
             $totalCutiPending = DB::table('pengajuan_cutis')
                 ->where('user_id', $user->id)
-                ->where('jenis_cuti_id', $request->jenis_cuti_id)
+                ->where('jenis_cuti_id', $jenisCutiId)
+                ->where('sub_cuti_id', $subCutiId)
                 ->where('status_akhir', 'pending')
                 ->sum('total_hari');
 
@@ -254,10 +319,7 @@ class PengajuanCutiController extends Controller
         // Cek bentrok tanggal
         $cutiBentrok = DB::table('pengajuan_cutis')
             ->where('user_id', $user->id)
-            ->where(function($query) {
-                $query->whereRaw('LOWER(status_akhir) = ?', ['pending'])
-                      ->orWhereRaw('LOWER(status_akhir) = ?', ['approved']);
-            })
+            ->whereIn('status_akhir', ['pending', 'approved'])
             ->where(function ($query) use ($tanggalMulaiBaru, $tanggalSelesaiBaru) {
                 $query->where(function ($q) use ($tanggalMulaiBaru) {
                     $q->where('tanggal_mulai', '<=', $tanggalMulaiBaru)
@@ -278,17 +340,17 @@ class PengajuanCutiController extends Controller
             return back()->withErrors(['error' => 'Ditolak! Anda sudah memiliki pengajuan cuti yang masih berstatus Pending/Approved pada tanggal tersebut.'])->withInput();
         }
 
-        $jenisCuti = JenisCuti::findOrFail($request->jenis_cuti_id);
+        $jenisCuti = JenisCuti::findOrFail($jenisCutiId);
         $namaCutiUtama = strtolower($jenisCuti->name_cuti ?? '');
 
         $namaSubCuti = '';
-        if ($request->sub_cuti_id) {
-            $subDb = SubCuti::find($request->sub_cuti_id);
+        if ($subCutiId) {
+            $subDb = SubCuti::find($subCutiId);
             $namaSubCuti = $subDb ? strtolower($subDb->nama_sub_cuti) : '';
         }
 
-        $genderUser = strtolower($user->gender_id ?? $user->gender->name ?? $user->gender ?? '');
-        $isPria = ($genderUser === 'pria' || $genderUser === '1' || $genderUser === 'laki-laki' || $genderUser === 'male');
+        $genderUser = strtolower($user->gender->name ?? '');
+        $isPria = in_array($genderUser, ['pria', '1', 'laki-laki', 'male']);
         if ($isPria) {
             if (str_contains($namaCutiUtama, 'melahirkan') || str_contains($namaSubCuti, 'melahirkan') || str_contains($namaSubCuti, 'gugur') || str_contains($namaSubCuti, 'haid')) {
                 return back()->withErrors(['error' => 'Ditolak! Jenis perizinan/cuti ini hanya boleh diambil oleh karyawan wanita.'])->withInput();
@@ -300,7 +362,7 @@ class PengajuanCutiController extends Controller
             $namaDokumen = $request->file('dokumen_pendukung')->store('dokumen_cuti', 'public');
         }
 
-        $roleName = strtolower($user->role->role_name ?? $user->role ?? '');
+        $roleName = strtolower($user->role->role_name ?? '');
         $statusSupervisor = 'pending';
         $statusManager    = 'pending';
         $statusAkhir      = 'pending';
@@ -318,8 +380,8 @@ class PengajuanCutiController extends Controller
         try {
             $pengajuan = PengajuanCuti::create([
                 'user_id' => $user->id,
-                'jenis_cuti_id' => $request->jenis_cuti_id,
-                'sub_cuti_id' => $request->sub_cuti_id,
+                'jenis_cuti_id' => $jenisCutiId,
+                'sub_cuti_id' => $subCutiId,
                 'tanggal_mulai' => $request->tanggal_mulai,
                 'tanggal_selesai' => $request->tanggal_selesai,
                 'total_hari' => $totalHari,
@@ -428,15 +490,11 @@ class PengajuanCutiController extends Controller
         return response()->json(['message' => 'Status pengajuan berhasil diperbarui oleh ' . $roleName]);
     }
 
-    private function cekApakahMemotongSaldo(int $jenisCutiId)
-    {
-        return (int)$jenisCutiId === 4;
-    }
-
-    // PERBAIKAN UTAMA: Menggunakan Exception agar validasi tertangkap oleh DB::rollBack() dengan info yang benar
+    // DINAMIS: Mendukung pemotongan saldo bulanan (Cuti Haid lewat SubCuti) & Tahunan
     private function sinkronisasiCutiDanAbsen(PengajuanCuti $pengajuan)
     {
-        if ($this->cekApakahMemotongSaldo($pengajuan->jenis_cuti_id)) {
+        if ($this->alurPotongSaldo($pengajuan->jenis_cuti_id, $pengajuan->sub_cuti_id)) {
+
             $saldo = SaldoCuti::where('user_id', $pengajuan->user_id)
                 ->where('jenis_cuti_id', $pengajuan->jenis_cuti_id)
                 ->where('tahun', Carbon::parse($pengajuan->tanggal_mulai)->year)
@@ -453,7 +511,7 @@ class PengajuanCutiController extends Controller
 
                 $saldo->decrement('sisa_saldo', $jumlahHariDipotong);
             } else {
-                throw new \Exception("Data saldo jatah cuti tahunan karyawan belum terdaftar di database untuk tahun berjalan.");
+                throw new \Exception("Data saldo jatah cuti/perizinan karyawan belum terdaftar di database.");
             }
         }
 
@@ -620,7 +678,7 @@ class PengajuanCutiController extends Controller
         return $pdf->stream('Surat_Cuti_' . str_replace(' ', '_', $pengajuan->user->name) . '.pdf');
     }
 
-    public function ambilSubCuti(int $id)
+    public function handleSubCuti(int $id)
     {
         $jenis = JenisCuti::with('subCutis')->findOrFail($id);
         return response()->json($jenis->subCutis);

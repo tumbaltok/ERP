@@ -57,7 +57,7 @@ class DatabaseSeeder extends Seeder
         // DATA MASTER JENIS CUTI & SUB-CUTI
         // ==========================================
 
-        // 1. Ijin Meninggalkan Pekerjaan
+        // 1. Ijin Meninggalkan Pekerjaan (Haid dimasukkan kembali ke sini)
         $ijinMeninggalkanPekerjaan = JenisCuti::create([
             'name_cuti'          => 'Ijin Meninggalkan Pekerjaan',
             'kuota_default'      => null,
@@ -67,7 +67,7 @@ class DatabaseSeeder extends Seeder
 
         $dataSubCuti = [
             ['nama' => 'Sakit', 'durasi' => null, 'ket' => 'Tidak memotong kuota tahunan jika melampirkan surat dokter'],
-            ['nama' => 'Haid', 'durasi' => 2, 'ket' => 'Tidak memotong kuota tahunan (Khusus Wanita)'],
+            ['nama' => 'Haid', 'durasi' => 2, 'ket' => 'Kuota maks 2 hari per bulan (Khusus Wanita)'], // Kembali ke SubCuti
             ['nama' => 'Pernikahan', 'durasi' => 3, 'ket' => 'Hari Kerja'],
             ['nama' => 'Istri Melahirkan', 'durasi' => 3, 'ket' => 'Hari Kerja (Khusus Pria)'],
             ['nama' => 'Kematian Suami/Istri/Anak/Orang Tua/Mertua', 'durasi' => 3, 'ket' => 'Hari Kerja'],
@@ -193,24 +193,24 @@ class DatabaseSeeder extends Seeder
         // ISI DATA SALDO CUTI OTOMATIS (TAHUN 2026)
         // ==========================================
 
-        // Mengambil semua user sekaligus dari database agar hemat query (Aman dari N+1)
         $daftarUser = User::orderBy('id', 'asc')->get();
 
-        $jenisCutiSaldos = [
-            ['id' => $cutiTahunan->id, 'saldo' => 12],
-            ['id' => $ijinMeninggalkanPekerjaan->id, 'saldo' => 0],
-            ['id' => $cutiFamilyVisit->id, 'saldo' => 0],
-            ['id' => $cutiMelahirkan->id, 'saldo' => 45],
-        ];
-
         foreach ($daftarUser as $user) {
+
+            // Konfigurasi dinamis saldo awal untuk masing-masing user
+            $jenisCutiSaldos = [
+                ['id' => $cutiTahunan->id, 'saldo' => 12],
+                ['id' => $cutiFamilyVisit->id, 'saldo' => 0],
+                ['id' => $cutiMelahirkan->id, 'saldo' => 45],
+                // Jika user Wanita, 'Ijin Meninggalkan Pekerjaan' langsung diberi isi saldo awal 2 (untuk kuota Haid bulan ini)
+                ['id' => $ijinMeninggalkanPekerjaan->id, 'saldo' => ($user->gender_id == $wanita->id) ? 2 : 0],
+            ];
+
             foreach ($jenisCutiSaldos as $cutiData) {
 
-                // Proteksi: Cuti Melahirkan hanya disuntikkan jika user berjenis kelamin Wanita
-                if ($cutiData['id'] == $cutiMelahirkan->id) {
-                    if ($user->gender_id != $wanita->id) {
-                        continue;
-                    }
+                // Proteksi: Cuti Melahirkan hanya disuntikkan jika user Wanita
+                if ($cutiData['id'] == $cutiMelahirkan->id && $user->gender_id != $wanita->id) {
+                    continue;
                 }
 
                 SaldoCuti::create([

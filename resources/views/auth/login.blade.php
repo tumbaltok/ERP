@@ -139,7 +139,7 @@
                     <div>
                         <div class="flex justify-between items-center mb-2">
                             <label for="password" class="block text-xs font-semibold text-slate-700 uppercase tracking-wider">Kata Sandi</label>
-                            <a href="#" class="text-xs font-semibold text-sky-600 hover:text-sky-700 hover:underline">Lupa Sandi?</a>
+                            {{-- <a href="#" class="text-xs font-semibold text-sky-600 hover:text-sky-700 hover:underline">Lupa Sandi?</a> --}}
                         </div>
                         <div class="relative">
                             <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
