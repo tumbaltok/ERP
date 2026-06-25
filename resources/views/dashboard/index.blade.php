@@ -3,6 +3,26 @@
 @section('content')
 <div class="space-y-6">
 
+    {{-- Banner Peringatan jika Email Belum Diverifikasi --}}
+    @if(auth()->check() && !auth()->user()->hasVerifiedEmail())
+        <div class="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-start space-x-3 shadow-sm">
+            <div class="p-2 bg-amber-100 text-amber-700 rounded-xl mt-0.5">
+                <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+            </div>
+            <div class="flex-1">
+                <h4 class="font-bold text-amber-800 text-sm">Akun Anda Belum Diverifikasi</h4>
+                <p class="text-xs text-amber-600 mt-0.5 leading-relaxed">
+                    Anda tetap dapat melihat riwayat dan menggunakan fitur profil. Namun, fitur <strong>Pengajuan Cuti baru akan terkunci</strong> sampai Anda memverifikasi alamat email Anda.
+                </p>
+                <div class="mt-2">
+                    <a href="{{ route('verification.notice') }}" class="text-xs font-bold text-amber-800 underline hover:text-amber-900 transition-colors">
+                        Klik di sini untuk mengirim ulang atau memverifikasi email &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+    @endif
+
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center space-x-4">
             <div class="p-3 bg-sky-50 text-sky-600 rounded-xl">

@@ -182,6 +182,7 @@ class DatabaseSeeder extends Seeder
             'nip' => '223',
             'name' => 'Karyawan Wanita',
             'email' => 'karyawan@meta.com',
+            'email_verified_at' => now(),
             'role_id' => $roleKaryawan->id,
             'gender_id' => $wanita->id,
             'station_id' => $stasiunBooster->id,
