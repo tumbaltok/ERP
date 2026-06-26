@@ -160,6 +160,7 @@
                 </div>
                 <div class="grid grid-cols-3 border-b border-slate-50 pb-2">
                     <span class="text-slate-400 font-medium">No. Telepon</span>
+                    <a id="detail_phone_link" href="#" target="_blank" class="col-span-2 text-slate-800 font-semibold hover:text-emerald-600 transition-colors hidden">-</a>
                     <span id="detail_phone" class="col-span-2 text-slate-800 font-semibold">-</span>
                 </div>
                 <div class="grid grid-cols-3 border-b border-slate-50 pb-2">
@@ -234,6 +235,32 @@
                         document.getElementById("detail_phone").textContent = data.phone_number ? data.phone_number : '-';
                         document.getElementById("detail_role").textContent = data.role_name ? data.role_name : 'Tidak Ada Role';
                         document.getElementById("detail_station").textContent = data.nama_stasiun ? `📍 ${data.nama_stasiun}` : '⚠️ Belum Diatur';
+
+                        const phoneLink = document.getElementById("detail_phone_link");
+                        const phoneSpan = document.getElementById("detail_phone");
+
+                        if (data.phone_number) {
+                            // 1. Bersihkan nomor dari spasi, strip, dll.
+                            let cleanNumber = data.phone_number.replace(/[^0-9]/g, '');
+
+                            // 2. Ubah awalan '08' menjadi '628'
+                            if (cleanNumber.startsWith('0')) {
+                                cleanNumber = '62' + cleanNumber.substring(1);
+                            }
+
+                            // 3. Masukkan text ke link dan pasang URL WhatsApp
+                            phoneLink.textContent = data.phone_number;
+                            phoneLink.href = `https://wa.me/${cleanNumber}`;
+
+                            // 4. Tampilkan link WhatsApp, sembunyikan span kosong
+                            phoneLink.classList.remove("hidden");
+                            phoneSpan.classList.add("hidden");
+                        } else {
+                            // Jika nomor tidak ada di database
+                            phoneLink.classList.add("hidden");
+                            phoneSpan.classList.remove("hidden");
+                            phoneSpan.textContent = '-';
+                        }
 
                         // Memasukkan Kode Pemetaan Job Title yang Aman
                         let jobTitleText = 'Belum Memilih';
