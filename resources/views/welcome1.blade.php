@@ -221,8 +221,8 @@
         <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12">
             <div class="w-full lg:w-1/2">
                 <div class="grid grid-cols-2 gap-4">
-                    <img src="https://images.unsplash.com/photo-1548839140-29a88648f138?auto=format&fit=crop&w=400&q=80" alt="Pemeriksaan Air Baku" class="rounded-2xl shadow-md w-full h-48 object-cover transform hover:scale-105 transition duration-300" onerror="this.src='https://placehold.co/400x192/0284c7/ffffff?text=Uji+Air+Baku'">
-                    <img src="https://images.unsplash.com/photo-1581094288338-2314dddb7eed?auto=format&fit=crop&w=400&q=80" alt="Infrastruktur Aliran Air" class="rounded-2xl shadow-md w-full h-48 object-cover transform hover:scale-105 transition duration-300 mt-6" onerror="this.src='https://placehold.co/400x192/475569/ffffff?text=Kontrol+Aliran+Intake'">
+                    <img src="images/uji.jpeg" alt="Pemeriksaan Air Baku" class="rounded-2xl shadow-md w-full h-48 object-cover transform hover:scale-105 transition duration-300" onerror="this.src='https://placehold.co/400x192/0284c7/ffffff?text=Uji+Air+Baku'">
+                    <img src="images/tbm.jpeg" alt="Infrastruktur Aliran Air" class="rounded-2xl shadow-md w-full h-48 object-cover transform hover:scale-105 transition duration-300 mt-6" onerror="this.src='https://placehold.co/400x192/475569/ffffff?text=Kontrol+Aliran+Intake'">
                 </div>
             </div>
 
